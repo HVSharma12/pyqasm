@@ -1435,10 +1435,11 @@ class QasmVisitor:
             formal_arg.name: actual_arg
             for formal_arg, actual_arg in zip(gate_definition.qubits, op_qubits)
         }
-        param_map = {
-            formal_arg.name: Qasm3ExprEvaluator.evaluate_expression(actual_arg)[0]
-            for formal_arg, actual_arg in zip(gate_definition.arguments, operation.arguments)
-        }
+        param_map: dict[str, int | float | bool] = {}
+        for formal_arg, actual_arg in zip(gate_definition.arguments, operation.arguments):
+            value = Qasm3ExprEvaluator.evaluate_expression(actual_arg)[0]
+            # gate parameters are angles: an int argument must not divide as an integer
+            param_map[formal_arg.name] = float(value) if isinstance(value, int) else value
 
         gate_definition_ops = self._expand_nop_statements(copy.deepcopy(gate_definition.body))
         if inverse:
