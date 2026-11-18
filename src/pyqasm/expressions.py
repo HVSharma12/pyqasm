@@ -38,7 +38,7 @@ from openqasm3.ast import (
     IntegerLiteral,
 )
 from openqasm3.ast import IntType as Qasm3IntType
-from openqasm3.ast import SizeOf, Statement, StretchType, UintType, UnaryExpression
+from openqasm3.ast import RangeDefinition, SizeOf, Statement, StretchType, UintType, UnaryExpression
 
 from pyqasm.analyzer import Qasm3Analyzer
 from pyqasm.elements import Variable
@@ -50,6 +50,9 @@ from pyqasm.maps.expressions import (
     qasm3_expression_op_map,
 )
 from pyqasm.validator import Qasm3Validator
+
+# binary operators that give an integer when both operands are integers
+_INTEGER_OPS = ("+", "-", "*", "/", "%", "**", "&", "|", "^", "<<", ">>")
 
 
 class Qasm3ExprEvaluator:
@@ -143,24 +146,38 @@ class Qasm3ExprEvaluator:
             )
 
     @classmethod
+    # pylint: disable-next=too-many-return-statements
     def _is_integer_typed(cls, expression) -> bool:
-        """Whether an expression is built only from integer literals and int or uint variables."""
+        """Whether an expression has an int or uint type, so that ``/`` divides it as integers."""
+        assert cls.visitor_obj
+        int_types = (Qasm3IntType, UintType)
         if isinstance(expression, IntegerLiteral):
             # OpenQASM 2 has no integer type: every classical expression is real
-            assert cls.visitor_obj
             return cls.visitor_obj._module.original_program.version != "2.0"
-        if isinstance(expression, Identifier):
-            assert cls.visitor_obj
-            var = cls.visitor_obj._scope_manager.get_from_visible_scope(expression.name)
+        if isinstance(expression, (Identifier, IndexExpression)):
+            name, indices = (
+                (expression.name, [])
+                if isinstance(expression, Identifier)
+                else Qasm3Analyzer.analyze_index_expression(expression)
+            )
+            var = cls.visitor_obj._scope_manager.get_from_visible_scope(name)
+            # a scalar, or one element of an array: an index into an int scalar is a bit
             return (
                 var is not None
-                and not var.dims
-                and isinstance(var.base_type, (Qasm3IntType, UintType))
+                and isinstance(var.base_type, int_types)
+                and isinstance(indices, list)
+                and len(indices) == len(var.dims or [])
+                and not any(isinstance(index, RangeDefinition) for index in indices)
             )
+        if isinstance(expression, Cast):
+            return isinstance(expression.type, int_types)
+        if isinstance(expression, FunctionCall):
+            definition = cls.visitor_obj._subroutine_defns.get(expression.name.name)
+            return isinstance(getattr(definition, "return_type", None), int_types)
         if isinstance(expression, UnaryExpression):
-            return expression.op.name == "-" and cls._is_integer_typed(expression.expression)
+            return expression.op.name in ("-", "~") and cls._is_integer_typed(expression.expression)
         if isinstance(expression, BinaryExpression):
-            return expression.op.name in ("+", "-", "*", "/", "%") and all(
+            return expression.op.name in _INTEGER_OPS and all(
                 cls._is_integer_typed(operand) for operand in (expression.lhs, expression.rhs)
             )
         return False

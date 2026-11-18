@@ -260,3 +260,57 @@ def test_openqasm2_division_stays_real(to_qasm3):
         module = module.to_qasm3()
     module.unroll()
     assert "rx(0.5) q[0];" in dumps(module)
+
+
+@pytest.mark.parametrize(
+    "statement, expected",
+    [
+        ("rx(int[32](f) / a) q[0];", "rx(3) q[0];"),
+        ("rx(uint[8](f) / a) q[0];", "rx(3) q[0];"),
+        ("rx(arr[0] / a) q[0];", "rx(3) q[0];"),
+        ("rx(uarr[0] / a) q[0];", "rx(3) q[0];"),
+        ("rx(arr2[1][0] / a) q[0];", "rx(3) q[0];"),
+        ("rx(arr2[1, 0] / a) q[0];", "rx(3) q[0];"),
+        ("rx((b | 4) / a) q[0];", "rx(3) q[0];"),
+        ("rx((b ^ 4) / a) q[0];", "rx(3) q[0];"),
+        ("rx((b << 1) / 4) q[0];", "rx(1) q[0];"),
+        ("rx(((b * 8) >> 1) / 5) q[0];", "rx(2) q[0];"),
+        ("rx(b ** a / 2) q[0];", "rx(4) q[0];"),
+        ("rx(h() / a) q[0];", "rx(3) q[0];"),
+        ("rx(hu() / a) q[0];", "rx(3) q[0];"),
+        # truncated toward zero, as for int variables
+        ("rx(int[32](-f) / a) q[0];", "rx(-3) q[0];"),
+        ("rx(-arr[0] / a) q[0];", "rx(-3) q[0];"),
+        ("rx(~b / 3) q[0];", "rx(-1) q[0];"),
+        ("rx(h() / -2) q[0];", "rx(-3) q[0];"),
+        # float operands keep true division
+        ("rx(float[64](b) / a) q[0];", "rx(1.5) q[0];"),
+        ("rx(farr[0] / a) q[0];", "rx(3.5) q[0];"),
+        ("rx(hf() / a) q[0];", "rx(3.5) q[0];"),
+        ("rx(h() / 2.0) q[0];", "rx(3.5) q[0];"),
+        ("rx(arr[0] / 2.0) q[0];", "rx(3.5) q[0];"),
+    ],
+)
+def test_integer_division_of_integer_typed_operands(statement, expected):
+    """Casts to int, int array elements, bitwise results, ** and int subroutines divide as
+    integers; float operands keep true division."""
+    qasm_str = f"""OPENQASM 3.0;
+    include "stdgates.inc";
+    qubit[2] q;
+    int[32] a = 2;
+    int[32] b = 3;
+    float[64] f = 7.9;
+    array[int[32], 2] arr = {{7, 1}};
+    array[uint[8], 2] uarr = {{7, 1}};
+    array[int[32], 2, 2] arr2 = {{{{1, 2}}, {{7, 4}}}};
+    array[float[64], 2] farr = {{7.0, 1.0}};
+    def h() -> int[32] {{ return 7; }}
+    def hu() -> uint[8] {{ return 7; }}
+    def hf() -> float[64] {{ return 7.0; }}
+    {statement}
+    """
+    result = loads(qasm_str)
+    result.unroll()
+    check_unrolled_qasm(
+        dumps(result), f'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[2] q;\n{expected}'
+    )
