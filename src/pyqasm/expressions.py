@@ -153,7 +153,7 @@ class Qasm3ExprEvaluator:
         int_types = (Qasm3IntType, UintType)
         if isinstance(expression, IntegerLiteral):
             # OpenQASM 2 has no integer type: every classical expression is real
-            return cls.visitor_obj._module.original_program.version != "2.0"
+            return not cls.visitor_obj._module._real_literal_division
         if isinstance(expression, (Identifier, IndexExpression)):
             name, indices = (
                 (expression.name, [])
